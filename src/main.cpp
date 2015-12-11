@@ -8,7 +8,7 @@
 
 #include "CReadData.hpp"
 
-/* Cblacs declarations not declared any where in MKL (i don't understand this!)*/
+// Cblacs declarations not declared any where in MKL (i don't understand this!)
 extern "C" {
     void Cblacs_pinfo(int *rank, int *nprocs);
     void Cblacs_get(int context, int what, int *val);
@@ -50,23 +50,73 @@ void setProcGrid(int *rank, int *nprocs, int *context, int numProcRows, int numP
     Cblacs_gridinit(context, "Row-major", numProcRows, numProcCols);
     Cblacs_pcoord(*context, *rank, rankRow, rankCol);
 
-    printf("Rank: %d, [%d, %d]\n", *rank, *rankRow, *rankCol);
+    //printf("Rank: %d, [%d, %d]\n", *rank, *rankRow, *rankCol);
     Cblacs_barrier(*context, "All");
 }
 
-void createSendDataTypes()
+void createSendDataTypes(int gridProcRows, int gridProcCols, int totalCols,
+                        std::vector<MPI_Datatype> &sendDataType, 
+                        std::vector<int> &numRows, std::vector<int> &numCols,
+                        std::vector<int> &myRow, std::vector<int> &myCol)
 {
-/* TODO:
-    int dataBlockLengths = new int(nrows);
-    int dataBlocksDisps = new int(nrows);
-//    int MPI_Type_indexed(int count, const int *array_of_blocklengths, const int *array_of_displacements, MPI_Datatype oldtype, MPI_Datatype *newtype)
-    for (int i =  0; i < nrows; i++)
+    int rank;
+    std::vector< std::vector<int> > sendDataBlockDisps;
+    std::vector< std::vector<int> > sendDataBlockLengths;
+    std::vector<int> myRowDisp(gridProcRows * gridProcCols, 0);
+    std::vector<int> myColDisp(gridProcRows * gridProcCols, 0);
+
+    // get the global row and col displacements for each proc in the grid
+    for (int gridRow = 0; gridRow < gridProcRows; gridRow++)
     {
-        dataBlockLengths[i] = ncols;
-        dataBlockDisps[i] = myRankCol *  i * ncols;
+        for (int gridCol = 0; gridCol < gridProcCols; gridCol++)
+        {
+            rank = gridCol + gridRow * gridProcCols;
+            
+            for (int i = 0; i < gridRow; i++)
+                myRowDisp[rank] += numRows[i];
+            
+            for (int j = 0; j < gridCol; j++)
+                myColDisp[rank] += numCols[j];
+
+            //printf("rank: %d [%d, %d]: rowDisp: %d, colDisp: %d\n", rank, myRow[rank], myCol[rank], myRowDisp[rank], myColDisp[rank]);
+        }
     }
-*/
+
+
+    for (int i = 0; i < (gridProcRows * gridProcCols); i++)
+    {
+        sendDataBlockDisps.push_back(std::vector<int>(numRows[i], 0));
+        sendDataBlockLengths.push_back(std::vector<int>(numRows[i], numCols[i]));
+   
+        //printf("rank: %d, send data lengths: %d, send data disps: \n", i, sendDataBlockLengths[i][0]);
+        printf("rank: %d, send data lengths: \n", i);
+        for (int j = 0; j < numRows[i]; j++)
+        {
+            sendDataBlockDisps[i][j] = (j * totalCols) + (myRowDisp[i] * totalCols) + myColDisp[i];
+            //printf(" %d", sendDataBlockDisps[i][j]);
+            //printf(" %d", &sendDataBlockLengths[i] + j);
+            std::cout << " " << *(sendDataBlockLengths[i].data() + j); 
+        }
+        printf("\n");
+    
+        MPI_Type_indexed(numRows[i], sendDataBlockLengths[i].data(), sendDataBlockDisps[i].data(), MPI_INT, &sendDataType[i]);
+        MPI_Type_commit(&sendDataType[i]);
+//    int MPI_Type_indexed(int count, const int *array_of_blocklengths, const int *array_of_displacements, MPI_Datatype oldtype, MPI_Datatype *newtype)
+//    int MPI_Type_commit(MPI_Datatype *datatype)
+    }
 }
+
+void initRootLocalData(int myRows, int myCols, int totalCols, const std::vector<int> &data, std::vector<int> &matrixData)
+{
+    for (int i = 0; i < myRows; i++)
+    {
+        for (int j = 0; j < myCols; j++)
+        {
+            matrixData[j + i*myCols] = data.at(j + i*totalCols);
+        }
+    }
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -83,44 +133,77 @@ int main(int argc, char *argv[])
     int root = 0;
     int blacsContext;
     int numProcs, myRank, myRankRow, myRankCol;
-    std::vector< std::vector<int> > *data;
+    int myRows, myCols;
+    std::vector<int> numRows;
+    std::vector<int> numCols;
+    std::vector<int> myRow;
+    std::vector<int> myCol;
+    std::vector<int> matrixData;
+    //const std::vector<int> &data;
+    //std::vector<int> *data;
 
     // init a grid using blacs
     setProcGrid(&myRank, &numProcs, &blacsContext, gridProcRows, gridProcCols, &myRankRow, &myRankCol);
                 
     // Number of rows and cols owned by the current process
-    int nrows = myNumRoC(matRows, blockSize, myRankRow, root, gridProcRows);
-    int ncols = myNumRoC(matCols, blockSize, myRankCol, root, gridProcCols);
-    printf("rank: %d, [%d, %d]: rows: %d, cols: %d \n", myRank, myRankRow, myRankCol, nrows, ncols);
+    myRows = myNumRoC(matRows, blockSize, myRankRow, root, gridProcRows);
+    myCols = myNumRoC(matCols, blockSize, myRankCol, root, gridProcCols);
+    printf("rank: %d, [%d, %d]: rows: %d, cols: %d, elems: %d\n", myRank, myRankRow, myRankCol, myRows, myCols, myRows*myCols);
+    
+    matrixData.reserve(myRows * myCols);
 
-    std::vector<int> matrixData(nrows * ncols);
-
-    // root reads all the data
     if (myRank == root)
     {
+        numRows.reserve(numProcs);
+        numCols.reserve(numProcs);
+        myRow.reserve(numProcs);
+        myCol.reserve(numProcs);
+    }
+
+    MPI_Gather(&myRows, 1, MPI_INT, numRows.data() + myRank, 1, MPI_INT, root, MPI_COMM_WORLD);
+    MPI_Gather(&myCols, 1, MPI_INT, numCols.data() + myRank, 1, MPI_INT, root, MPI_COMM_WORLD);
+    MPI_Gather(&myRankRow, 1, MPI_INT, myRow.data() + myRank, 1, MPI_INT, root, MPI_COMM_WORLD);
+    MPI_Gather(&myRankCol, 1, MPI_INT, myCol.data() + myRank, 1, MPI_INT, root, MPI_COMM_WORLD);
+
+    if (myRank == 0)
+    {
+        printf("numRows in root:\n");
+        for (int i = 0; i < numProcs; i++)
+            printf("numRows[%d]: %d\n", i, numRows[i]);
+    }
+
+    // root reads all the data and distributes data to the rest
+    if (myRank == root)
+    {
+        std::vector<MPI_Datatype> sendDataType(numProcs);
+        createSendDataTypes(gridProcRows, gridProcCols, matCols, sendDataType, numRows, numCols, myRow, myCol);
         CReadData readCSV(fileName, *delimiter.c_str());
+
         readCSV.readAllLines();
-        //readCSV.printLines(numLines);
-        data = readCSV.getData();
+        //readCSV.printLines(10);
+        const std::vector<int> &data = readCSV.getData();
+        printf("data[0]: %d\n", data[0]);
 
         // send data belonging to respective procs in row-major form
-        MPI_Send(const void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm)
+        for (int i = 1; i < numProcs; i++)
+        {
+            MPI_Send(data.data(), 1, sendDataType[i], i, 0, MPI_COMM_WORLD);
+        }
         //int MPI_Send(const void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm)
 
+        initRootLocalData(myRows, myCols, matCols, data, matrixData);
     }
-    
-    // distribute data to all procs in the grid
-    
+    else
+    {
+        MPI_Recv(matrixData.data(), myRows*myCols, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        //int MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Status *status)
+    }
+
+    printf("rank: %d, matData[0]: %d\n", myRank, matrixData[0]);
+
+
+
+
     MPI_Finalize();
     return 0;
 }
-
-//        printf("matrix: [%lu, %lu]\n", data->size(), data->at(0).size());
-//        for (int i = 0; i < data->size(); i++)
-//        {
-//            for (int j = 0; j < data->at(i).size(); j++)
-//            {
-//                std::cout << data->at(i)[j] << std::setw(4);
-//            }
-//            std::cout << std::endl;
-//        }

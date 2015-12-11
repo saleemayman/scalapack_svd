@@ -20,7 +20,7 @@ void CReadData::readAllLines()
     while(std::getline(file, line))
     {
         std::stringstream lineStream(line);
-        data.push_back(std::vector<int>());
+        //data.push_back(std::vector<int>());
         
         readLine(lineStream);
  
@@ -34,26 +34,33 @@ void CReadData::readLine(std::stringstream &lineStream)
     {
         std::stringstream ss(valueStr);
         ss >> dataValue;
-        data[lineNum].push_back(dataValue);
+        //data[lineNum].push_back(dataValue);
+        data.push_back(dataValue);
     }
 }
 
 void CReadData::printLines(int numLines)
 {
-    printf("Data: \n");
-    for (int i = 0; i < numLines; i++)
+    printf("Data: (size: %lu)\n", data.size());
+    for (int i = 0; i < 11; i++)
+    //for (int i = 0; i < data.size(); i++)
     {
+        //printf(" %d ", data[i]);
         printf("line %d: ", i);
-        for (int j = 0; j < data[i].size(); j++)
+        //for (int j = 0; j < data[i].size(); j++)
+        for (int j = 0; j < 17; j++)
         {
-            printf(" %d ", data[i][j]);
+            printf(" %d ", data[i * 17 + j]);
         }
         printf("\n");
     }
+    printf("\n");
 }
 
-std::vector< std::vector<int> >* CReadData::getData()
+//std::vector< std::vector<int> >* CReadData::getData()
+const std::vector<int>& CReadData::getData() const
 {
-    return &data;
+    return data;
+    //return &data;
 }
 
