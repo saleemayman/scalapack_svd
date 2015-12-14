@@ -50,7 +50,7 @@ void CReadData::printLines(int numLines)
         //for (int j = 0; j < data[i].size(); j++)
         for (int j = 0; j < 17; j++)
         {
-            printf(" %d ", data[i * 17 + j]);
+            printf(" %f ", data[i * 17 + j]);
         }
         printf("\n");
     }
@@ -58,7 +58,7 @@ void CReadData::printLines(int numLines)
 }
 
 //std::vector< std::vector<int> >* CReadData::getData()
-const std::vector<int>& CReadData::getData() const
+const std::vector<double>& CReadData::getData() const
 {
     return data;
     //return &data;

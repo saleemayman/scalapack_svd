@@ -1,0 +1,8 @@
+
+DISK GROUP QUOTAS for home and project file systems:
+Filesystem                                 Quota     Used Space     Free Space
+/home/hpc/h039w           ($HOME)        1000.0GB  824.5GB (82%)  175.5GB (18%)
+/gpfs/work/h039w          ($WORK)        1000.0GB  534.8GB (53%)  465.2GB (47%)
+-------------------------------------------------------------------------------
+
+Executing LRZ User Prolog ...

@@ -85,34 +85,35 @@ void createSendDataTypes(int gridProcRows, int gridProcCols, int totalCols,
 
     for (int i = 0; i < (gridProcRows * gridProcCols); i++)
     {
-        sendDataBlockDisps.push_back(std::vector<int>(numRows[i], 0));
-        sendDataBlockLengths.push_back(std::vector<int>(numRows[i], numCols[i]));
+        sendDataBlockDisps.push_back(std::vector<int>(numRows[i] * numCols[i], 0));
+        sendDataBlockLengths.push_back(std::vector<int>(numRows[i] * numCols[i], 1));
    
-        //printf("rank: %d, send data lengths: %d, send data disps: \n", i, sendDataBlockLengths[i][0]);
-        printf("rank: %d, send data lengths: \n", i);
-        for (int j = 0; j < numRows[i]; j++)
+        printf("rank: %d, send data lengths size: %lu \n", i, sendDataBlockLengths[i].size());
+        for (int c = 0; c < numCols[i]; c++)
         {
-            sendDataBlockDisps[i][j] = (j * totalCols) + (myRowDisp[i] * totalCols) + myColDisp[i];
-            //printf(" %d", sendDataBlockDisps[i][j]);
-            //printf(" %d", &sendDataBlockLengths[i] + j);
-            std::cout << " " << *(sendDataBlockLengths[i].data() + j); 
+            for (int r = 0; r < numRows[i]; r++)
+            {
+                sendDataBlockDisps[i][c * numRows[i] + r] = (r * totalCols) + (myRowDisp[i] * totalCols) + myColDisp[i] + c;
+            }
         }
         printf("\n");
-    
-        MPI_Type_indexed(numRows[i], sendDataBlockLengths[i].data(), sendDataBlockDisps[i].data(), MPI_INT, &sendDataType[i]);
+
+        MPI_Type_indexed(numRows[i] * numCols[i], sendDataBlockLengths[i].data(), sendDataBlockDisps[i].data(), MPI_DOUBLE, &sendDataType[i]);
         MPI_Type_commit(&sendDataType[i]);
+
 //    int MPI_Type_indexed(int count, const int *array_of_blocklengths, const int *array_of_displacements, MPI_Datatype oldtype, MPI_Datatype *newtype)
 //    int MPI_Type_commit(MPI_Datatype *datatype)
     }
 }
 
-void initRootLocalData(int myRows, int myCols, int totalCols, const std::vector<int> &data, std::vector<int> &matrixData)
+
+void initRootLocalData(int myRows, int myCols, int totalCols, const std::vector<double> &data, std::vector<double> &matrixData)
 {
-    for (int i = 0; i < myRows; i++)
+    for (int j = 0; j < myCols; j++)
     {
-        for (int j = 0; j < myCols; j++)
+        for (int i = 0; i < myRows; i++)
         {
-            matrixData[j + i*myCols] = data.at(j + i*totalCols);
+            matrixData[i + j*myRows] = data[j + i*totalCols];
         }
     }
 }
@@ -138,7 +139,7 @@ int main(int argc, char *argv[])
     std::vector<int> numCols;
     std::vector<int> myRow;
     std::vector<int> myCol;
-    std::vector<int> matrixData;
+    std::vector<double> matrixData;
     //const std::vector<int> &data;
     //std::vector<int> *data;
 
@@ -150,14 +151,14 @@ int main(int argc, char *argv[])
     myCols = myNumRoC(matCols, blockSize, myRankCol, root, gridProcCols);
     printf("rank: %d, [%d, %d]: rows: %d, cols: %d, elems: %d\n", myRank, myRankRow, myRankCol, myRows, myCols, myRows*myCols);
     
-    matrixData.reserve(myRows * myCols);
+    matrixData.resize(myRows * myCols, -1.0f);
 
     if (myRank == root)
     {
-        numRows.reserve(numProcs);
-        numCols.reserve(numProcs);
-        myRow.reserve(numProcs);
-        myCol.reserve(numProcs);
+        numRows.resize(numProcs);
+        numCols.resize(numProcs);
+        myRow.resize(numProcs);
+        myCol.resize(numProcs);
     }
 
     MPI_Gather(&myRows, 1, MPI_INT, numRows.data() + myRank, 1, MPI_INT, root, MPI_COMM_WORLD);
@@ -181,8 +182,8 @@ int main(int argc, char *argv[])
 
         readCSV.readAllLines();
         //readCSV.printLines(10);
-        const std::vector<int> &data = readCSV.getData();
-        printf("data[0]: %d\n", data[0]);
+        const std::vector<double> &data = readCSV.getData();
+        printf("data[0]: %f\n", data[0]);
 
         // send data belonging to respective procs in row-major form
         for (int i = 1; i < numProcs; i++)
@@ -195,11 +196,30 @@ int main(int argc, char *argv[])
     }
     else
     {
-        MPI_Recv(matrixData.data(), myRows*myCols, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(matrixData.data(), myRows * myCols, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         //int MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Status *status)
     }
 
-    printf("rank: %d, matData[0]: %d\n", myRank, matrixData[0]);
+    //printf("rank: %d, matData[0]: %f\n", myRank, matrixData[0]);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    for (int i = 0; i < numProcs; i++)
+    {
+        if (i == myRank)
+        {
+            printf("Rank: %d, local A: \n", myRank);
+            for (int i = 0; i < myRows ; i++)
+            {
+                for (int j = 0; j < myCols; j++)
+                {
+                    printf("  %f", matrixData[i + j*myRows]);
+                }
+                printf("\n");
+            }
+        } 
+        MPI_Barrier(MPI_COMM_WORLD);
+        printf("\n");
+    }
 
 
 
