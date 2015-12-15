@@ -5,8 +5,19 @@
 #include <vector>
 
 #include <mpi.h>
+#include <mkl_scalapack.h>
 
 #include "CReadData.hpp"
+
+#define dtype_a 0
+#define ctxt_a  1
+#define m_a     2   
+#define n_a     3
+#define mb_a    4
+#define nb_a    5
+#define rsrc_a  6
+#define csrc_a  7
+#define lld_a   8
 
 // Cblacs declarations not declared any where in MKL (i don't understand this!)
 extern "C" {
@@ -57,13 +68,12 @@ void setProcGrid(int *rank, int *nprocs, int *context, int numProcRows, int numP
 void createSendDataTypes(int gridProcRows, int gridProcCols, int totalCols,
                         std::vector<MPI_Datatype> &sendDataType, 
                         std::vector<int> &numRows, std::vector<int> &numCols,
+                        std::vector<int> &myRowDisp, std::vector<int> &myColDisp,
                         std::vector<int> &myRow, std::vector<int> &myCol)
 {
     int rank;
     std::vector< std::vector<int> > sendDataBlockDisps;
     std::vector< std::vector<int> > sendDataBlockLengths;
-    std::vector<int> myRowDisp(gridProcRows * gridProcCols, 0);
-    std::vector<int> myColDisp(gridProcRows * gridProcCols, 0);
 
     // get the global row and col displacements for each proc in the grid
     for (int gridRow = 0; gridRow < gridProcRows; gridRow++)
@@ -140,6 +150,8 @@ int main(int argc, char *argv[])
     std::vector<int> myRow;
     std::vector<int> myCol;
     std::vector<double> matrixData;
+    std::vector<int> myRowDisp(gridProcRows * gridProcCols, 0);
+    std::vector<int> myColDisp(gridProcRows * gridProcCols, 0);
     //const std::vector<int> &data;
     //std::vector<int> *data;
 
@@ -177,7 +189,7 @@ int main(int argc, char *argv[])
     if (myRank == root)
     {
         std::vector<MPI_Datatype> sendDataType(numProcs);
-        createSendDataTypes(gridProcRows, gridProcCols, matCols, sendDataType, numRows, numCols, myRow, myCol);
+        createSendDataTypes(gridProcRows, gridProcCols, matCols, sendDataType, numRows, numCols, myRowDisp, myColDisp, myRow, myCol);
         CReadData readCSV(fileName, *delimiter.c_str());
 
         readCSV.readAllLines();
@@ -199,8 +211,11 @@ int main(int argc, char *argv[])
         MPI_Recv(matrixData.data(), myRows * myCols, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         //int MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Status *status)
     }
-
     //printf("rank: %d, matData[0]: %f\n", myRank, matrixData[0]);
+
+    MPI_Bcast(myRowDisp.data(), numProcs, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(myColDisp.data(), numProcs, MPI_INT, 0, MPI_COMM_WORLD);
+
 
     MPI_Barrier(MPI_COMM_WORLD);
     for (int i = 0; i < numProcs; i++)
@@ -218,10 +233,63 @@ int main(int argc, char *argv[])
             }
         } 
         MPI_Barrier(MPI_COMM_WORLD);
-        printf("\n");
     }
 
+    // compute LU factorization using scalapack
+    MKL_INT desca[9];
+    MKL_INT info;
+    std::vector<MKL_INT> ipiv(myRows + blockSize);
+    MKL_INT dick = 1;
+                  
+    desca[dtype_a] = 1;
+    desca[ctxt_a] = blacsContext;
+    desca[m_a] = matRows;
+    desca[n_a] = matCols;
+    desca[mb_a] = blockSize;
+    desca[nb_a] = blockSize;
+    desca[rsrc_a] = 0;
+    desca[csrc_a] = 0;
+    desca[lld_a] = myRows;
 
+    pdgetrf(&matRows, &matCols, matrixData.data(), &dick, &dick, desca, ipiv.data(), &info);
+    if (info != 0)
+        printf("rank: %d, info: %d\n", myRank, info);
+
+//void pdgetrf(MKL_INT *m, MKL_INT *n, double *a, MKL_INT *ia, MKL_INT *ja, MKL_INT *desca, MKL_INT *ipiv, MKL_INT *info);
+
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    for (int i = 0; i < numProcs; i++)
+    {
+        if (i == myRank)
+        {
+            printf("Rank: %d, local LU: \n", myRank);
+            for (int i = 0; i < myRows ; i++)
+            {
+                for (int j = 0; j < myCols; j++)
+                {
+                    printf("  %f", matrixData[i + j*myRows]);
+                }
+                printf("\n");
+            }
+        } 
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    for (int i = 0; i < numProcs; i++)
+    {
+        if (i == myRank)
+        {
+            printf("Rank: %d, local ipiv -> myRows: %d, blockSize: %d, size: %lu\n", myRank, myRows, blockSize, ipiv.size());
+            for (int i = 0; i < myRows*blockSize ; i++)
+            {
+                printf("  %d", ipiv[i]);
+            }
+            printf("\n");
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
 
 
     MPI_Finalize();
