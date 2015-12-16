@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <cstdlib>
 #include <vector>
+#include <algorithm>
 
 #include <mpi.h>
 #include <mkl_scalapack.h>
@@ -272,60 +273,104 @@ int main(int argc, char *argv[])
     }
 
     // compute LU factorization using scalapack
-    MKL_INT desca[9];
+    MKL_INT desca[9], descu[9], descvt[9];
     MKL_INT info;
-    std::vector<MKL_INT> ipiv(myRows + blockSize);
     MKL_INT ia = 1;
     MKL_INT ja = 1;
-                  
-    desca[dtype_a] = 1;
-    desca[ctxt_a] = blacsContext;
-    desca[m_a] = matRows;
-    desca[n_a] = matCols;
-    desca[mb_a] = blockSize;
-    desca[nb_a] = blockSize;
-    desca[rsrc_a] = 0;
-    desca[csrc_a] = 0;
-    desca[lld_a] = myRows;
+    MKL_INT iu = 1;
+    MKL_INT ju = 1;
+    MKL_INT ivt = 1;
+    MKL_INT jvt = 1;
+    MKL_INT lwork = -1; //myRows * blockSize; // ?
+    int size = std::min(matRows, matCols);
+    int sizeq = myRows;
+    int sizep = myCols;
+    char jobu = 'V';
+    char jobvt = 'V';
+    std::vector<double> singularValues(size);
+    std::vector<double> leftSingularVectors(matRows * size);    // ?
+    std::vector<double> rightSingularVectors(size * matCols);   // ?
+    std::vector<double> work(myRows * blockSize); // ?
 
-    pdgetrf(&matRows, &matCols, matrixData.data(), &ia, &ja, desca, ipiv.data(), &info);
+    // array descriptors
+    desca[dtype_a] = 1;            descu[dtype_a] = 1;             descvt[dtype_a] = 1;
+    desca[ctxt_a] = blacsContext;  descu[ctxt_a] = blacsContext;   descvt[ctxt_a] = blacsContext;
+    desca[m_a] = matRows;          descu[m_a] = matRows;           descvt[m_a] = matCols;
+    desca[n_a] = matCols;          descu[n_a] = matRows;           descvt[n_a] = matCols;
+    desca[mb_a] = blockSize;       descu[mb_a] = blockSize;        descvt[mb_a] = blockSize;
+    desca[nb_a] = blockSize;       descu[nb_a] = blockSize;        descvt[nb_a] = blockSize; 
+    desca[rsrc_a] = 0;             descu[rsrc_a] = 0;              descvt[rsrc_a] = 0;
+    desca[csrc_a] = 0;             descu[csrc_a] = 0;              descvt[csrc_a] = 0;
+    desca[lld_a] = myRows;         descu[lld_a] = myRows;          descvt[lld_a] = myRows;
+
+    //pdgetrf(&matRows, &matCols, matrixData.data(), &ia, &ja, desca, ipiv.data(), &info);
+    pdgesvd(&jobu, &jobvt, &matRows, &matCols, matrixData.data(), &ia, &ja, desca, 
+            singularValues.data(), leftSingularVectors.data(), &iu, &ju, descu, 
+            rightSingularVectors.data(), &ivt, &jvt, descvt, 
+            work.data(), &lwork, &info);
     if (info != 0)
         printf("rank: %d, info: %d\n", myRank, info);
 
-//void pdgetrf(MKL_INT *m, MKL_INT *n, double *a, MKL_INT *ia, MKL_INT *ja, MKL_INT *desca, MKL_INT *ipiv, MKL_INT *info);
+    // re-allocate work using returned lwork and run SVD again
+    lwork = work[0];
+    work.resize(lwork);
+    pdgesvd(&jobu, &jobvt, &matRows, &matCols, matrixData.data(), &ia, &ja, desca, 
+            singularValues.data(), leftSingularVectors.data(), &iu, &ju, descu, 
+            rightSingularVectors.data(), &ivt, &jvt, descvt, 
+            work.data(), &lwork, &info);
+    if (info != 0)
+        printf("rank: %d, info: %d\n", myRank, info);
+
+// void pdgetrf(MKL_INT *m, MKL_INT *n, double *a, MKL_INT *ia, MKL_INT *ja, MKL_INT *desca, MKL_INT *ipiv, MKL_INT *info);
+// void pdgesvd(char *jobu, char *jobvt, MKL_INT *m, MKL_INT *n, double *a, MKL_INT *ia, MKL_INT *ja, MKL_INT *desca, double *s, double *u, MKL_INT *iu, MKL_INT *ju, MKL_INT *descu, double *vt, MKL_INT *ivt, MKL_INT *jvt, MKL_INT *descvt, double *work, MKL_INT *lwork, double *rwork, MKL_INT *info);
 
     MPI_Barrier(MPI_COMM_WORLD);
     for (int i = 0; i < numProcs; i++)
     {
         if (i == myRank)
         {
-            printf("Rank: %d, local LU: \n", myRank);
-            for (int i = 0; i < myRows ; i++)
+            printf("Rank: %d, lwork: %d, singular values: \n", myRank, (int)work[0]);
+            for (int i = 0; i < size; i++)
             {
-                for (int j = 0; j < myCols; j++)
-                {
-                    printf("  %f", matrixData[i + j*myRows]);
-                }
-                printf("\n");
+                printf("  %f", singularValues[i]);
             }
+            printf("\n");
         } 
         MPI_Barrier(MPI_COMM_WORLD);
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (int i = 0; i < numProcs; i++)
-    {
-        if (i == myRank)
-        {
-            printf("Rank: %d, local ipiv -> myRows: %d, blockSize: %d, size: %lu\n", myRank, myRows, blockSize, ipiv.size());
-            for (int i = 0; i < myRows*blockSize ; i++)
-            {
-                printf("  %d", ipiv[i]);
-            }
-            printf("\n");
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
+//    MPI_Barrier(MPI_COMM_WORLD);
+//    for (int i = 0; i < numProcs; i++)
+//    {
+//        if (i == myRank)
+//        {
+//            printf("Rank: %d, local A: \n", myRank);
+//            for (int i = 0; i < myRows ; i++)
+//            {
+//                for (int j = 0; j < myCols; j++)
+//                {
+//                    printf("  %f", matrixData[i + j*myRows]);
+//                }
+//                printf("\n");
+//            }
+//        } 
+//        MPI_Barrier(MPI_COMM_WORLD);
+//    }
+
+//    MPI_Barrier(MPI_COMM_WORLD);
+//    for (int i = 0; i < numProcs; i++)
+//    {
+//        if (i == myRank)
+//        {
+//            printf("Rank: %d, local ipiv -> myRows: %d, blockSize: %d, size: %lu\n", myRank, myRows, blockSize, ipiv.size());
+//            for (int i = 0; i < myRows*blockSize ; i++)
+//            {
+//                printf("  %d", ipiv[i]);
+//            }
+//            printf("\n");
+//        }
+//        MPI_Barrier(MPI_COMM_WORLD);
+//    }
 
 
     MPI_Finalize();
