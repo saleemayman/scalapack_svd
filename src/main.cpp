@@ -5,19 +5,9 @@
 #include <vector>
 
 #include <mpi.h>
-#include <mkl_scalapack.h>
+//#include <mkl_scalapack.h>
 
 #include "CReadData.hpp"
-
-#define dtype_a 0
-#define ctxt_a  1
-#define m_a     2   
-#define n_a     3
-#define mb_a    4
-#define nb_a    5
-#define rsrc_a  6
-#define csrc_a  7
-#define lld_a   8
 
 // Cblacs declarations not declared any where in MKL (i don't understand this!)
 extern "C" {
@@ -49,7 +39,7 @@ int myNumRoC(int numRowsCols, int rowColBlockSize, int procRowColCoord, int proc
         numLocalRowsCols += rowColBlockSize;
     else if (myDist == extraBlocks)
         numLocalRowsCols += (numRowsCols % rowColBlockSize);
-    
+
     return numLocalRowsCols;
 }
 
@@ -65,15 +55,17 @@ void setProcGrid(int *rank, int *nprocs, int *context, int numProcRows, int numP
     Cblacs_barrier(*context, "All");
 }
 
-void createSendDataTypes(int gridProcRows, int gridProcCols, int totalCols,
+void createSendDataTypes(int gridProcRows, int gridProcCols, int totalCols, int totalRows, int blockSize,
                         std::vector<MPI_Datatype> &sendDataType, 
                         std::vector<int> &numRows, std::vector<int> &numCols,
                         std::vector<int> &myRowDisp, std::vector<int> &myColDisp,
                         std::vector<int> &myRow, std::vector<int> &myCol)
 {
-    int rank;
+    int rank, procRow, procCol, procRank;
+    std::vector<int> myLocalIndex(gridProcRows * gridProcCols, 0);
     std::vector< std::vector<int> > sendDataBlockDisps;
     std::vector< std::vector<int> > sendDataBlockLengths;
+
 
     // get the global row and col displacements for each proc in the grid
     for (int gridRow = 0; gridRow < gridProcRows; gridRow++)
@@ -92,38 +84,53 @@ void createSendDataTypes(int gridProcRows, int gridProcCols, int totalCols,
         }
     }
 
-
-    for (int i = 0; i < (gridProcRows * gridProcCols); i++)
+    // init each procs send data type with the respective number of blocks
+    for (int i = 0; i < gridProcRows*gridProcCols; i++)
     {
         sendDataBlockDisps.push_back(std::vector<int>(numRows[i] * numCols[i], 0));
         sendDataBlockLengths.push_back(std::vector<int>(numRows[i] * numCols[i], 1));
-   
-        printf("rank: %d, send data lengths size: %lu \n", i, sendDataBlockLengths[i].size());
-        for (int c = 0; c < numCols[i]; c++)
-        {
-            for (int r = 0; r < numRows[i]; r++)
-            {
-                sendDataBlockDisps[i][c * numRows[i] + r] = (r * totalCols) + (myRowDisp[i] * totalCols) + myColDisp[i] + c;
-            }
-        }
-        printf("\n");
+    }
 
+    // add each block's displacement index in the disp vector in 2D block-cyclic manner.
+    for (int j = 0; j < totalCols; j++)
+    {
+        for (int i = 0; i < totalRows; i++)
+        {
+            procRow = (i/blockSize) % gridProcRows;
+            procCol = (j/blockSize) % gridProcCols;
+            procRank = procCol + procRow * gridProcCols;
+
+            sendDataBlockDisps[procRank][ myLocalIndex[procRank] ] = i * totalCols + j;
+            myLocalIndex[procRank]++;
+        }
+    }
+
+    for (int i = 0; i < gridProcRows*gridProcCols; i++)
+    {
         MPI_Type_indexed(numRows[i] * numCols[i], sendDataBlockLengths[i].data(), sendDataBlockDisps[i].data(), MPI_DOUBLE, &sendDataType[i]);
         MPI_Type_commit(&sendDataType[i]);
-
-//    int MPI_Type_indexed(int count, const int *array_of_blocklengths, const int *array_of_displacements, MPI_Datatype oldtype, MPI_Datatype *newtype)
-//    int MPI_Type_commit(MPI_Datatype *datatype)
     }
+
 }
 
 
-void initRootLocalData(int myRows, int myCols, int totalCols, const std::vector<double> &data, std::vector<double> &matrixData)
+void initRootLocalData(int totalRows, int totalCols, int blockSize, int gridProcRows, int gridProcCols, const std::vector<double> &data, std::vector<double> &matrixData)
 {
-    for (int j = 0; j < myCols; j++)
+    int elems = 0;
+    int procRow, procCol, procRank;
+    for (int j = 0; j < totalCols; j++)
     {
-        for (int i = 0; i < myRows; i++)
+        for (int i = 0; i < totalRows; i++)
         {
-            matrixData[i + j*myRows] = data[j + i*totalCols];
+            procRow = (i/blockSize) % gridProcRows;
+            procCol = (j/blockSize) % gridProcCols;
+            procRank = procCol + procRow * gridProcCols;
+            
+            if (procRank == 0)
+            {
+                matrixData[elems] = data[j + i*totalCols];
+                elems++;
+            }
         }
     }
 }
@@ -161,7 +168,7 @@ int main(int argc, char *argv[])
     // Number of rows and cols owned by the current process
     myRows = myNumRoC(matRows, blockSize, myRankRow, root, gridProcRows);
     myCols = myNumRoC(matCols, blockSize, myRankCol, root, gridProcCols);
-    printf("rank: %d, [%d, %d]: rows: %d, cols: %d, elems: %d\n", myRank, myRankRow, myRankCol, myRows, myCols, myRows*myCols);
+    printf("rank: %d, [%d, %d]: rows: %d, cols: %d, blockSize: %d, elems: %d\n", myRank, myRankRow, myRankCol, myRows, myCols, blockSize, myRows*myCols);
     
     matrixData.resize(myRows * myCols, -1.0f);
 
@@ -178,18 +185,37 @@ int main(int argc, char *argv[])
     MPI_Gather(&myRankRow, 1, MPI_INT, myRow.data() + myRank, 1, MPI_INT, root, MPI_COMM_WORLD);
     MPI_Gather(&myRankCol, 1, MPI_INT, myCol.data() + myRank, 1, MPI_INT, root, MPI_COMM_WORLD);
 
-    if (myRank == 0)
-    {
-        printf("numRows in root:\n");
-        for (int i = 0; i < numProcs; i++)
-            printf("numRows[%d]: %d\n", i, numRows[i]);
-    }
+//    if (myRank == root)
+//    {
+//        int l, m, pr, pc, x, y;
+//        for (int i = 0; i < matRows; i++)
+//        {
+//            for (int j = 0; j < matCols; j++)
+//            {
+//                l = (i - 0)/(gridProcRows*blockSize);
+//                m = (j - 0)/(gridProcCols*blockSize);
+//                pr = ((i - 0)/blockSize) % gridProcRows;
+//                pc = ((j - 0)/blockSize) % gridProcCols;
+//                x = (i - 0) % blockSize + 0;
+//                y = (j - 0) % blockSize + 0;
+//                printf("[i, j]: [%d, %d], (l, m): (%d, %d), (pr, pc): (%d, %d), (x, y): (%d, %d)\n", i, j, l, m, pr, pc, x, y);
+//            }
+//        }
+//    }
+
+
+//    if (myRank == 0)
+//    {
+//        printf("numRows in root:\n");
+//        for (int i = 0; i < numProcs; i++)
+//            printf("numRows[%d]: %d\n", i, numRows[i]);
+//    }
 
     // root reads all the data and distributes data to the rest
     if (myRank == root)
     {
         std::vector<MPI_Datatype> sendDataType(numProcs);
-        createSendDataTypes(gridProcRows, gridProcCols, matCols, sendDataType, numRows, numCols, myRowDisp, myColDisp, myRow, myCol);
+        createSendDataTypes(gridProcRows, gridProcCols, matCols, matRows, blockSize, sendDataType, numRows, numCols, myRowDisp, myColDisp, myRow, myCol);
         CReadData readCSV(fileName, *delimiter.c_str());
 
         readCSV.readAllLines();
@@ -204,7 +230,7 @@ int main(int argc, char *argv[])
         }
         //int MPI_Send(const void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm)
 
-        initRootLocalData(myRows, myCols, matCols, data, matrixData);
+        initRootLocalData(matRows, matCols, blockSize, gridProcRows, gridProcCols, data, matrixData);
     }
     else
     {
@@ -235,61 +261,6 @@ int main(int argc, char *argv[])
         MPI_Barrier(MPI_COMM_WORLD);
     }
 
-    // compute LU factorization using scalapack
-    MKL_INT desca[9];
-    MKL_INT info;
-    std::vector<MKL_INT> ipiv(myRows + blockSize);
-    MKL_INT dick = 1;
-                  
-    desca[dtype_a] = 1;
-    desca[ctxt_a] = blacsContext;
-    desca[m_a] = matRows;
-    desca[n_a] = matCols;
-    desca[mb_a] = blockSize;
-    desca[nb_a] = blockSize;
-    desca[rsrc_a] = 0;
-    desca[csrc_a] = 0;
-    desca[lld_a] = myRows;
-
-    pdgetrf(&matRows, &matCols, matrixData.data(), &dick, &dick, desca, ipiv.data(), &info);
-    if (info != 0)
-        printf("rank: %d, info: %d\n", myRank, info);
-
-//void pdgetrf(MKL_INT *m, MKL_INT *n, double *a, MKL_INT *ia, MKL_INT *ja, MKL_INT *desca, MKL_INT *ipiv, MKL_INT *info);
-
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (int i = 0; i < numProcs; i++)
-    {
-        if (i == myRank)
-        {
-            printf("Rank: %d, local LU: \n", myRank);
-            for (int i = 0; i < myRows ; i++)
-            {
-                for (int j = 0; j < myCols; j++)
-                {
-                    printf("  %f", matrixData[i + j*myRows]);
-                }
-                printf("\n");
-            }
-        } 
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (int i = 0; i < numProcs; i++)
-    {
-        if (i == myRank)
-        {
-            printf("Rank: %d, local ipiv -> myRows: %d, blockSize: %d, size: %lu\n", myRank, myRows, blockSize, ipiv.size());
-            for (int i = 0; i < myRows*blockSize ; i++)
-            {
-                printf("  %d", ipiv[i]);
-            }
-            printf("\n");
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
 
 
     MPI_Finalize();
