@@ -5,9 +5,19 @@
 #include <vector>
 
 #include <mpi.h>
-//#include <mkl_scalapack.h>
+#include <mkl_scalapack.h>
 
 #include "CReadData.hpp"
+
+#define dtype_a 0
+#define ctxt_a  1
+#define m_a     2   
+#define n_a     3
+#define mb_a    4
+#define nb_a    5
+#define rsrc_a  6
+#define csrc_a  7
+#define lld_a   8
 
 // Cblacs declarations not declared any where in MKL (i don't understand this!)
 extern "C" {
@@ -261,6 +271,61 @@ int main(int argc, char *argv[])
         MPI_Barrier(MPI_COMM_WORLD);
     }
 
+    // compute LU factorization using scalapack
+    MKL_INT desca[9];
+    MKL_INT info;
+    std::vector<MKL_INT> ipiv(myRows + blockSize);
+    MKL_INT ia = 1;
+    MKL_INT ja = 1;
+                  
+    desca[dtype_a] = 1;
+    desca[ctxt_a] = blacsContext;
+    desca[m_a] = matRows;
+    desca[n_a] = matCols;
+    desca[mb_a] = blockSize;
+    desca[nb_a] = blockSize;
+    desca[rsrc_a] = 0;
+    desca[csrc_a] = 0;
+    desca[lld_a] = myRows;
+
+    pdgetrf(&matRows, &matCols, matrixData.data(), &ia, &ja, desca, ipiv.data(), &info);
+    if (info != 0)
+        printf("rank: %d, info: %d\n", myRank, info);
+
+//void pdgetrf(MKL_INT *m, MKL_INT *n, double *a, MKL_INT *ia, MKL_INT *ja, MKL_INT *desca, MKL_INT *ipiv, MKL_INT *info);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    for (int i = 0; i < numProcs; i++)
+    {
+        if (i == myRank)
+        {
+            printf("Rank: %d, local LU: \n", myRank);
+            for (int i = 0; i < myRows ; i++)
+            {
+                for (int j = 0; j < myCols; j++)
+                {
+                    printf("  %f", matrixData[i + j*myRows]);
+                }
+                printf("\n");
+            }
+        } 
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    for (int i = 0; i < numProcs; i++)
+    {
+        if (i == myRank)
+        {
+            printf("Rank: %d, local ipiv -> myRows: %d, blockSize: %d, size: %lu\n", myRank, myRows, blockSize, ipiv.size());
+            for (int i = 0; i < myRows*blockSize ; i++)
+            {
+                printf("  %d", ipiv[i]);
+            }
+            printf("\n");
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
 
 
     MPI_Finalize();
