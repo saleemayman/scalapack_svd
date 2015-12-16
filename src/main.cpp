@@ -288,8 +288,8 @@ int main(int argc, char *argv[])
     char jobu = 'V';
     char jobvt = 'V';
     std::vector<double> singularValues(size);
-    std::vector<double> leftSingularVectors(matRows * size);    // ?
-    std::vector<double> rightSingularVectors(size * matCols);   // ?
+    std::vector<double> leftSingularVectors(myRows * myCols);    // ?
+    std::vector<double> rightSingularVectors(myRows * myCols);   // ?
     std::vector<double> work(myRows * blockSize); // ?
 
     // array descriptors
@@ -339,23 +339,41 @@ int main(int argc, char *argv[])
         MPI_Barrier(MPI_COMM_WORLD);
     }
 
-//    MPI_Barrier(MPI_COMM_WORLD);
-//    for (int i = 0; i < numProcs; i++)
-//    {
-//        if (i == myRank)
-//        {
-//            printf("Rank: %d, local A: \n", myRank);
-//            for (int i = 0; i < myRows ; i++)
-//            {
-//                for (int j = 0; j < myCols; j++)
-//                {
-//                    printf("  %f", matrixData[i + j*myRows]);
-//                }
-//                printf("\n");
-//            }
-//        } 
-//        MPI_Barrier(MPI_COMM_WORLD);
-//    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    for (int i = 0; i < numProcs; i++)
+    {
+        if (i == myRank)
+        {
+            printf("Rank: %d, leftSingularValues: \n", myRank);
+            for (int i = 0; i < myRows ; i++)
+            {
+                for (int j = 0; j < myCols; j++)
+                {
+                    printf("  %f", leftSingularVectors[i + j*myRows]);
+                }
+                printf("\n");
+            }
+        } 
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    for (int i = 0; i < numProcs; i++)
+    {
+        if (i == myRank)
+        {
+            printf("Rank: %d, rightSingularValues: \n", myRank);
+            for (int i = 0; i < myRows ; i++)
+            {
+                for (int j = 0; j < myCols; j++)
+                {
+                    printf("  %f", rightSingularVectors[i + j*myRows]);
+                }
+                printf("\n");
+            }
+        } 
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
 
 //    MPI_Barrier(MPI_COMM_WORLD);
 //    for (int i = 0; i < numProcs; i++)
