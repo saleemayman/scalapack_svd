@@ -6,7 +6,8 @@
 
 class CInitGrid
 {
-private:
+//private:
+protected:
     int myRank;
     int numProcs;
     int context;
@@ -22,10 +23,18 @@ private:
     void setProcRowsOrCols();
 public:
     CInitGrid(int totalRows, int totalCols, 
-            int blockSizeRow, int blockSizeCol, 
+            int blockSizeRows, int blockSizeCols, 
             int gridNumProcRows, int gridNumProcCols, 
             int procWithFirstRow, int procWithFirstCol);
     ~CInitGrid();
+
+    int getMyRank();
+    int getNumProcs();
+    int getContext();
+    int getMyRow();
+    int getMyCol();
+    int getMyNumRows();
+    int getMyNumCols();
 };
 
 #endif
