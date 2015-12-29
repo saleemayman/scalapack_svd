@@ -11,7 +11,7 @@ makedirectories:
 ifeq ($(USE_MPI), 1)
 CXX                 :=  mpiCC
 else
-CXX                 :=  g++
+CXX                 :=  mpiCC
 endif
 
 # link all objects to the executable

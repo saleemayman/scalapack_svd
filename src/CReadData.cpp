@@ -42,17 +42,9 @@ void CReadData::readLine(std::stringstream &lineStream)
 void CReadData::printLines(int numLines)
 {
     printf("Data: (size: %lu)\n", data.size());
-    for (int i = 0; i < 11; i++)
-    //for (int i = 0; i < data.size(); i++)
+    for (int i = 0; i < data.size(); i++)
     {
-        //printf(" %d ", data[i]);
-        printf("line %d: ", i);
-        //for (int j = 0; j < data[i].size(); j++)
-        for (int j = 0; j < 17; j++)
-        {
-            printf(" %f ", data[i * 17 + j]);
-        }
-        printf("\n");
+        printf(" %d", (int)data[i]);
     }
     printf("\n");
 }
