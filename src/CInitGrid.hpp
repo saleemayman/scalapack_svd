@@ -17,6 +17,7 @@ protected:
     int myRows, myCols;
     int blockSizeRows, blockSizeCols;
     int procWithFirstRow, procWithFirstCol;
+    gridInfo myGridInfo;
 
     int myNumRoC(int numRowsCols, int rowColBlockSize, int procRowColCoord, int procWithFirstRowCol, int numRowColProcs);
     void setProcGrid();
@@ -28,6 +29,7 @@ public:
             int procWithFirstRow, int procWithFirstCol);
     ~CInitGrid();
 
+    gridInfo getGridInfo();
     int getMyRank();
     int getNumProcs();
     int getContext();

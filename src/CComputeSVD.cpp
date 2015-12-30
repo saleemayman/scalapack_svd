@@ -2,22 +2,43 @@
 
 #include "CComputeSVD.hpp"
 
-CComputeSVD::CComputeSVD(int myRank, int numProcs, int context, 
-                        int myRankRow, int myRankCol,
-                        int myRows, int myCols,
+CComputeSVD::CComputeSVD(gridInfo myGridInfo,
                         int totalRows, int totalCols, 
                         int blockSizeRows, int blockSizeCols, 
                         int gridNumProcRows, int gridNumProcCols, 
                         int procWithFirstRow, int procWithFirstCol):
-                            myRank(myRank), numProcs(numProcs), context(context),
-                            myRankRow(myRankRow), myRankCol(myRankCol),
-                            myRows(myRows), myCols(myCols),
+                            myRank(myGridInfo.myRank), numProcs(myGridInfo.numProcs), context(myGridInfo.context),
+                            myRankRow(myGridInfo.myRow), myRankCol(myGridInfo.myCol),
+                            myRows(myGridInfo.myNumRows), myCols(myGridInfo.myNumCols),
                             totalRows(totalRows), totalCols(totalCols),
                             blockSizeRows(blockSizeRows), blockSizeCols(blockSizeCols),
                             gridNumProcRows(gridNumProcRows), gridNumProcCols(gridNumProcCols),
-                            procWithFirstRow(procWithFirstRow), procWithFirstCol(procWithFirstCol)
+                            procWithFirstRow(procWithFirstRow), procWithFirstCol(procWithFirstCol),
+                            descA(9), descU(9), descVT(9),
+                            singularValues(std::min(totalRows, totalCols)),
+                            leftSingularVectors(myRows * myCols),
+                            rightSingularVectors(myRows * myCols),
+                            work(myRows * blockSizeRows)
 {
     printf("CComputeSVD -> rank: %d, [%d, %d]: rows: %d, cols: %d, blockSizeRows: %d, blockSizeCols: %d, elems: %d\n", myRank, myRankRow, myRankCol, myRows, myCols, blockSizeRows, blockSizeCols, myRows*myCols);
+
+    // initialize the variables for the SVD routine
+    ia = 1;
+    ja = 1;
+    iu = 1;
+    ju = 1;
+    ivt = 1;
+    jvt = 1;
+    lwork = -1; //myRows * blockSize; // ?
+    size = std::min(totalRows, totalCols);
+    sizeq = myRows;
+    sizep = myCols;
+    jobu = 'V';
+    jobvt = 'V';
+//    singularValues->resize(size);
+//    leftSingularVectors->resize(myRows * myCols);    // ?
+//    rightSingularVectors->resize(myRows * myCols);   // ?
+//    work->resize(myRows * blockSizeRows); // ?
 
     // initalize the local matrices
     myData = new std::vector<double>(myRows * myCols, 0);
@@ -60,55 +81,47 @@ void CComputeSVD::createLocal2DBlockCyclicMatrix(const std::vector<double> &coor
     }
 }
 
-void CComputeSVD::createArrayDescriptors()
+void CComputeSVD::createArrayDescriptor(std::vector<MKL_INT> &descVec, int dtype, int ctxt, int m, int n, int mb, int nb, int rsrc, int csrc, int lld)
 {
     // array descriptors
-    descA[dtype_a] = 1;            descU[dtype_a] = 1;             descVT[dtype_a] = 1;
-    descA[ctxt_a] = context;       descU[ctxt_a] = context;        descVT[ctxt_a] = context;
-    descA[m_a] = matRows;          descU[m_a] = matRows;           descVT[m_a] = matCols;
-    descA[n_a] = matCols;          descU[n_a] = matRows;           descVT[n_a] = matCols;
-    descA[mb_a] = blockSize;       descU[mb_a] = blockSize;        descVT[mb_a] = blockSize;
-    descA[nb_a] = blockSize;       descU[nb_a] = blockSize;        descVT[nb_a] = blockSize; 
-    descA[rsrc_a] = 0;             descU[rsrc_a] = 0;              descVT[rsrc_a] = 0;
-    descA[csrc_a] = 0;             descU[csrc_a] = 0;              descVT[csrc_a] = 0;
-    descA[lld_a] = myRows;         descU[lld_a] = myRows;          descVT[lld_a] = myRows;
+    descVec[DTYPE_] = dtype;
+    descVec[CTXT_] = ctxt;
+    descVec[M_] = m;
+    descVec[N_] = n;
+    descVec[MB_] = mb;
+    descVec[NB_] = nb;
+    descVec[RSRC_] = rsrc;
+    descVec[CSRC_] = csrc;
+    descVec[LLD_] = lld;
 }
+
+
+void CComputeSVD::initSVDVariables()
+{
+    createArrayDescriptor(descA, 1, context, totalRows, totalCols, blockSizeRows, blockSizeCols, 0, 0, myRows);
+    createArrayDescriptor(descU, 1, context, totalRows, totalRows, blockSizeRows, blockSizeCols, 0, 0, myRows);
+    createArrayDescriptor(descVT, 1, context, totalCols, totalCols, blockSizeRows, blockSizeCols, 0, 0, myRows);
+}
+
 
 void CComputeSVD::computeSVD()
 {
-    // compute LU factorization using scalapack
-    MKL_INT info;
-    MKL_INT ia = 1;
-    MKL_INT ja = 1;
-    MKL_INT iu = 1;
-    MKL_INT ju = 1;
-    MKL_INT ivt = 1;
-    MKL_INT jvt = 1;
-    MKL_INT lwork = -1; //myRows * blockSize; // ?
-    int size = std::min(matRows, matCols);
-    int sizeq = myRows;
-    int sizep = myCols;
-    char jobu = 'V';
-    char jobvt = 'V';
-    std::vector<double> singularValues(size);
-    std::vector<double> leftSingularVectors(myRows * myCols);    // ?
-    std::vector<double> rightSingularVectors(myRows * myCols);   // ?
-    std::vector<double> work(myRows * blockSize); // ?
+    initSVDVariables();
 
-
-    pdgesvd(&jobu, &jobvt, &matRows, &matCols, myData->data(), &ia, &ja, descA, 
-            singularValues.data(), leftSingularVectors.data(), &iu, &ju, descU, 
-            rightSingularVectors.data(), &ivt, &jvt, descVT, 
+    pdgesvd(&jobu, &jobvt, &totalRows, &totalCols, myData->data(), &ia, &ja, descA.data(), 
+            singularValues.data(), leftSingularVectors.data(), &iu, &ju, descU.data(), 
+            rightSingularVectors.data(), &ivt, &jvt, descVT.data(), 
             work.data(), &lwork, &info);
     if (info != 0)
         printf("rank: %d, info: %d\n", myRank, info);
 
     // re-allocate work using returned lwork and run SVD again
+    //lwork = work->operator[](0);
     lwork = work[0];
     work.resize(lwork);
-    pdgesvd(&jobu, &jobvt, &matRows, &matCols, myData->data(), &ia, &ja, descA, 
-            singularValues.data(), leftSingularVectors.data(), &iu, &ju, descU, 
-            rightSingularVectors.data(), &ivt, &jvt, descVT, 
+    pdgesvd(&jobu, &jobvt, &totalRows, &totalCols, myData->data(), &ia, &ja, descA.data(), 
+            singularValues.data(), leftSingularVectors.data(), &iu, &ju, descU.data(), 
+            rightSingularVectors.data(), &ivt, &jvt, descVT.data(), 
             work.data(), &lwork, &info);
     if (info != 0)
         printf("rank: %d, info: %d\n", myRank, info);
@@ -117,6 +130,56 @@ void CComputeSVD::computeSVD()
 
 }
 
+const std::vector<double>& CComputeSVD::getSingularValues() const
+{
+    return singularValues;
+}
+
+const std::vector<double>& CComputeSVD::getLeftSingularVectors() const
+{
+    return leftSingularVectors;
+}
+
+const std::vector<double>& CComputeSVD::getRightSingularVectors() const
+{   
+    return rightSingularVectors;
+}
+
+void CComputeSVD::printLocalSingularValues()
+{
+    printf("Rank: %d, lwork: %d, singular values: \n", myRank, (int)work[0]);
+    for (int i = 0; i < size; i++)
+    {
+        printf("  %f", singularValues[i]);
+    }
+    printf("\n");
+}
+
+void CComputeSVD::printLocalLeftSingularVectors()
+{
+    printf("Rank: %d, leftSingularValues: \n", myRank);
+    for (int i = 0; i < myRows ; i++)
+    {
+        for (int j = 0; j < myCols; j++)
+        {
+            printf("  %f", leftSingularVectors[i + j*myRows]);
+        }
+        printf("\n");
+    }
+}
+
+void CComputeSVD::printLocalRightSingularVectors()
+{
+    printf("Rank: %d, rightSingularValues: \n", myRank);
+    for (int i = 0; i < myRows ; i++)
+    {
+        for (int j = 0; j < myCols; j++)
+        {
+            printf("  %f", rightSingularVectors[i + j*myRows]);
+        }
+        printf("\n");
+    }
+}
 
 void CComputeSVD::printLocalMatrix()
 {

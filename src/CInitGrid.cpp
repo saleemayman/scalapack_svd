@@ -57,9 +57,21 @@ void CInitGrid::setProcRowsOrCols()
 {
     myRows = myNumRoC(totalRows, blockSizeRows, myRankRow, procWithFirstRow, gridNumProcRows);
     myCols = myNumRoC(totalCols, blockSizeCols, myRankCol, procWithFirstCol, gridNumProcCols);
+    myGridInfo.context = context;
+    myGridInfo.myRank = myRank;
+    myGridInfo.numProcs = numProcs;
+    myGridInfo.myRow = myRankRow;
+    myGridInfo.myCol = myRankCol;
+    myGridInfo.myNumRows = myRows;
+    myGridInfo.myNumCols = myCols;
+
     printf("CInitGrid -> rank: %d, [%d, %d]: rows: %d, cols: %d, blockSizeRows: %d, blockSizeCols: %d, elems: %d\n", myRank, myRankRow, myRankCol, myRows, myCols, blockSizeRows, blockSizeCols, myRows*myCols);
 }
 
+gridInfo CInitGrid::getGridInfo()
+{
+    return myGridInfo;
+}
 
 int CInitGrid::getMyRank()
 {

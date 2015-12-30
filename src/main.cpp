@@ -1,12 +1,9 @@
 #include <stdio.h>
 #include <iostream>
-#include <iomanip>
 #include <cstdlib>
 #include <vector>
-#include <algorithm>
 
 #include <mpi.h>
-#include <mkl_scalapack.h>
 
 #include "CReadData.hpp"
 #include "CInitGrid.hpp"
@@ -23,20 +20,15 @@ int main(int argc, char *argv[])
     int gridProcCols = atoi(argv[4]);
     int matRows = atoi(argv[5]);
     int matCols = atoi(argv[6]);
-    int blockSize = atoi(argv[7]);
+    int blockSizeRows = atoi(argv[7]);
+    int blockSizeCols = atoi(argv[8]);
 
     int root = 0;
 
-    CInitGrid myGrid(matRows, matCols, blockSize, blockSize, gridProcRows, gridProcCols, root, root);
-
-    CComputeSVD temp(myGrid.getMyRank(), 
-                    myGrid.getNumProcs(), 
-                    myGrid.getContext(), 
-                    myGrid.getMyRow(),
-                    myGrid.getMyCol(),
-                    myGrid.getMyNumRows(),
-                    myGrid.getMyNumCols(),
-                    matRows, matCols, blockSize, blockSize,
+    CInitGrid myGrid(matRows, matCols, blockSizeRows, blockSizeCols, gridProcRows, gridProcCols, root, root);
+    
+    CComputeSVD temp(myGrid.getGridInfo(), 
+                    matRows, matCols, blockSizeRows, blockSizeCols,
                     gridProcRows, gridProcCols,
                     root, root);
 
@@ -59,54 +51,36 @@ int main(int argc, char *argv[])
         MPI_Barrier(MPI_COMM_WORLD);
     }
 
+    // get the SVD
+    temp.computeSVD();
+    
+    const std::vector<double> &singularValues = temp.getSingularValues(); 
+//    const std::vector<double> &leftSingularVectors = temp.getLeftSingularVectors(); 
+//    const std::vector<double> &rightSingularVectors = temp.getRightSingularVectors(); 
 
+    // root will print the singular values
+    if (myGrid.getMyRank() == root)
+    {
+        temp.printLocalSingularValues();
+    } 
+    MPI_Barrier(MPI_COMM_WORLD);
 
-//    for (int i = 0; i < numProcs; i++)
+//    MPI_Barrier(MPI_COMM_WORLD);
+//    for (int i = 0; i < myGrid.getNumProcs(); i++)
 //    {
-//        if (i == myRank)
+//        if (i == myGrid.getMyRank())
 //        {
-//            printf("Rank: %d, lwork: %d, singular values: \n", myRank, (int)work[0]);
-//            for (int i = 0; i < size; i++)
-//            {
-//                printf("  %f", singularValues[i]);
-//            }
-//            printf("\n");
+//            temp.printLocalLeftSingularVectors();
 //        } 
 //        MPI_Barrier(MPI_COMM_WORLD);
 //    }
 //
 //    MPI_Barrier(MPI_COMM_WORLD);
-//    for (int i = 0; i < numProcs; i++)
+//    for (int i = 0; i < myGrid.getNumProcs(); i++)
 //    {
-//        if (i == myRank)
+//        if (i == myGrid.getMyRank())
 //        {
-//            printf("Rank: %d, leftSingularValues: \n", myRank);
-//            for (int i = 0; i < myRows ; i++)
-//            {
-//                for (int j = 0; j < myCols; j++)
-//                {
-//                    printf("  %f", leftSingularVectors[i + j*myRows]);
-//                }
-//                printf("\n");
-//            }
-//        } 
-//        MPI_Barrier(MPI_COMM_WORLD);
-//    }
-//
-//    MPI_Barrier(MPI_COMM_WORLD);
-//    for (int i = 0; i < numProcs; i++)
-//    {
-//        if (i == myRank)
-//        {
-//            printf("Rank: %d, rightSingularValues: \n", myRank);
-//            for (int i = 0; i < myRows ; i++)
-//            {
-//                for (int j = 0; j < myCols; j++)
-//                {
-//                    printf("  %f", rightSingularVectors[i + j*myRows]);
-//                }
-//                printf("\n");
-//            }
+//            temp.printLocalRightSingularVectors();
 //        } 
 //        MPI_Barrier(MPI_COMM_WORLD);
 //    }
