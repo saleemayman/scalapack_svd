@@ -16,7 +16,7 @@ void CReadData::readAllLines()
 {
     lineNum = 0;
     
-    printf("reading file: %s ...\n", fileName.c_str());
+//    printf("reading file: %s ...\n", fileName.c_str());
     while(std::getline(file, line))
     {
         std::stringstream lineStream(line);

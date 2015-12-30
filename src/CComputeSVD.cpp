@@ -150,7 +150,7 @@ void CComputeSVD::printLocalSingularValues()
     printf("Rank: %d, lwork: %d, singular values: \n", myRank, (int)work[0]);
     for (int i = 0; i < size; i++)
     {
-        printf("  %f", singularValues[i]);
+        printf("%f\n", singularValues[i]);
     }
     printf("\n");
 }

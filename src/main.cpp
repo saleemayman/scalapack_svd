@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <vector>
+#include <ctime>
 
 #include <mpi.h>
 
@@ -12,6 +13,10 @@
 
 int main(int argc, char *argv[])
 {
+    int root = 0;
+    clock_t t0, t1, t2, time;
+    t0 = clock();
+
     MPI_Init(&argc, &argv);
 
     std::string fileName = argv[1];
@@ -23,15 +28,20 @@ int main(int argc, char *argv[])
     int blockSizeRows = atoi(argv[7]);
     int blockSizeCols = atoi(argv[8]);
 
-    int root = 0;
-
+    t1 = clock();
     CInitGrid myGrid(matRows, matCols, blockSizeRows, blockSizeCols, gridProcRows, gridProcCols, root, root);
-    
     CComputeSVD temp(myGrid.getGridInfo(), 
                     matRows, matCols, blockSizeRows, blockSizeCols,
                     gridProcRows, gridProcCols,
                     root, root);
+    t2 = clock();
+    
+    time = t2 - t1;
+    MPI_Reduce(&time, &t2, 1, MPI_LONG, MPI_SUM, root, MPI_COMM_WORLD);
+    if (myGrid.getMyRank() == root)
+        printf("rank: %d, init time: %f\n", myGrid.getMyRank(), (float)(t2)/(CLOCKS_PER_SEC*myGrid.getNumProcs()));
 
+    t1 = clock();
     // create block cyclic data for each proc
     {
         CReadData readCSV(fileName, *delimiter.c_str());
@@ -40,20 +50,22 @@ int main(int argc, char *argv[])
     
         temp.createLocal2DBlockCyclicMatrix(data);
     }        
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (int i = 0; i < myGrid.getNumProcs(); i++)
-    {
-        if (i == myGrid.getMyRank())
-        {
-            temp.printLocalMatrix();
-        } 
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
+    t2 = clock();
+    time = t2 - t1;
+    MPI_Reduce(&time, &t2, 1, MPI_LONG, MPI_SUM, root, MPI_COMM_WORLD);
+    if (myGrid.getMyRank() == root)
+        printf("rank: %d, data dist. time: %f\n", myGrid.getMyRank(), (float)(t2)/(CLOCKS_PER_SEC*myGrid.getNumProcs()));
 
     // get the SVD
+    t1 = clock();
     temp.computeSVD();
-    
+    t2 = clock();
+
+    time = t2 - t1;
+    MPI_Reduce(&time, &t2, 1, MPI_LONG, MPI_SUM, root, MPI_COMM_WORLD);
+    if (myGrid.getMyRank() == root)
+        printf("rank: %d, SVD time: %f\n", myGrid.getMyRank(), (float)(t2)/(CLOCKS_PER_SEC*myGrid.getNumProcs()));
+
     const std::vector<double> &singularValues = temp.getSingularValues(); 
 //    const std::vector<double> &leftSingularVectors = temp.getLeftSingularVectors(); 
 //    const std::vector<double> &rightSingularVectors = temp.getRightSingularVectors(); 
@@ -65,26 +77,12 @@ int main(int argc, char *argv[])
     } 
     MPI_Barrier(MPI_COMM_WORLD);
 
-//    MPI_Barrier(MPI_COMM_WORLD);
-//    for (int i = 0; i < myGrid.getNumProcs(); i++)
-//    {
-//        if (i == myGrid.getMyRank())
-//        {
-//            temp.printLocalLeftSingularVectors();
-//        } 
-//        MPI_Barrier(MPI_COMM_WORLD);
-//    }
-//
-//    MPI_Barrier(MPI_COMM_WORLD);
-//    for (int i = 0; i < myGrid.getNumProcs(); i++)
-//    {
-//        if (i == myGrid.getMyRank())
-//        {
-//            temp.printLocalRightSingularVectors();
-//        } 
-//        MPI_Barrier(MPI_COMM_WORLD);
-//    }
 
+    t2 = clock();
+    time = t2 - t0;
+    MPI_Reduce(&time, &t2, 1, MPI_LONG, MPI_SUM, root, MPI_COMM_WORLD);
+    if (myGrid.getMyRank() == root)
+        printf("rank: %d, total time: %f\n", myGrid.getMyRank(), (float)(t2)/(CLOCKS_PER_SEC*myGrid.getNumProcs()));
 
     MPI_Finalize();
     return 0;
