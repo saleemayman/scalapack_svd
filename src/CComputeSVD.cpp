@@ -20,7 +20,7 @@ CComputeSVD::CComputeSVD(gridInfo myGridInfo,
                             rightSingularVectors(myRows * myCols),
                             work(myRows * blockSizeRows)
 {
-    printf("CComputeSVD -> rank: %d, [%d, %d]: rows: %d, cols: %d, blockSizeRows: %d, blockSizeCols: %d, elems: %d\n", myRank, myRankRow, myRankCol, myRows, myCols, blockSizeRows, blockSizeCols, myRows*myCols);
+    //printf("CComputeSVD -> rank: %d, [%d, %d]: rows: %d, cols: %d, blockSizeRows: %d, blockSizeCols: %d, elems: %d\n", myRank, myRankRow, myRankCol, myRows, myCols, blockSizeRows, blockSizeCols, myRows*myCols);
 
     // initialize the variables for the SVD routine
     ia = 1;

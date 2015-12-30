@@ -1,15 +1,26 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#define dtype_a 0
-#define ctxt_a  1
-#define m_a     2   
-#define n_a     3
-#define mb_a    4
-#define nb_a    5
-#define rsrc_a  6
-#define csrc_a  7
-#define lld_a   8
+#define DTYPE_ 0
+#define CTXT_  1
+#define M_     2   
+#define N_     3
+#define MB_    4
+#define NB_    5
+#define RSRC_  6
+#define CSRC_  7
+#define LLD_   8
+
+struct gridInfo {
+    int context;
+    int myRank;
+    int numProcs;
+    int myRow;
+    int myCol;
+    int myNumRows;
+    int myNumCols;
+};
+
 
 // Cblacs declarations not declared any where in MKL (i don't understand this!)
 extern "C" {
