@@ -1,7 +1,7 @@
 #!/bin/bash
 clean:
 	rm -f obj/*.o
-	rm -f bin/testRead
+	rm -f bin/getSvd
 	rmdir obj/
 	rmdir bin/
 
@@ -9,10 +9,15 @@ makedirectories:
 	mkdir obj
 	mkdir bin
 
+CXX     :=
+ifeq ($(PROFILE), 1)
+CXX     +=  scorep --online-access --user --nocompiler --thread=none
+endif
+
 ifeq ($(USE_MPI), 1)
-CXX                 :=  mpiCC
+CXX     +=  mpiCC
 else
-CXX                 :=  g++
+CXX     +=  g++
 endif
 
 SCALAPACK_LINK_LINE := -I${MKLROOT}/include ${MKLROOT}/lib/intel64/libmkl_scalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_core.a ${MKLROOT}/lib/intel64/libmkl_sequential.a ${MKLROOT}/lib/intel64/libmkl_blacs_intelmpi_lp64.a -Wl,--end-group -lpthread -lm
@@ -26,5 +31,5 @@ link: makedirectories
 	$(CXX) -O3  -Wall -c src/main.cpp -o obj/main.o ${SCALAPACK_LINK_LINE}
 
 all: link
-	$(CXX) obj/CReadData.o obj/CInitGrid.o obj/CComputeSVD.o obj/main.o -o bin/testRead -I${MKLROOT}/include ${MKLROOT}/lib/intel64/libmkl_scalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_core.a ${MKLROOT}/lib/intel64/libmkl_sequential.a ${MKLROOT}/lib/intel64/libmkl_blacs_intelmpi_lp64.a -Wl,--end-group -lpthread -lm 
+	$(CXX) obj/CReadData.o obj/CInitGrid.o obj/CComputeSVD.o obj/main.o -o bin/getSvd -I${MKLROOT}/include ${MKLROOT}/lib/intel64/libmkl_scalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_core.a ${MKLROOT}/lib/intel64/libmkl_sequential.a ${MKLROOT}/lib/intel64/libmkl_blacs_intelmpi_lp64.a -Wl,--end-group -lpthread -lm 
 

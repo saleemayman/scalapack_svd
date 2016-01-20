@@ -115,6 +115,9 @@ void CComputeSVD::computeSVD()
     if (info != 0)
         printf("rank: %d, info: %d\n", myRank, info);
 
+    if (myRank == 0)
+        printf("rank: %d, about to start SVD comp. ...\n", myRank);
+
     // re-allocate work using returned lwork and run SVD again
     //lwork = work->operator[](0);
     lwork = work[0];
