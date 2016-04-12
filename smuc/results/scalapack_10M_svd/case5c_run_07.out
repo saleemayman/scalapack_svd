@@ -1,0 +1,7 @@
+Command: mpiexec -n 128 ./bin/getSvd ../../data/ratings10MNoTime.dat , 16 8 71567 65133 64 64
+rank: 0, init time: 0.289688
+rank: 0, data dist. time: 41.682499
+rank: 0, about to start SVD comp. ...
+rank: 0, SVD time: 2361.419922
+rank: 0, total time: 2403.424316
+The job has finished!
